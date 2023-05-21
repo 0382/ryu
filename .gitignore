@@ -2,3 +2,6 @@ bazel-*
 /.eclipse-bin/
 /.project
 .vscode/
+build/
+*.o
+*.a
