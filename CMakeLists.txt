@@ -10,3 +10,4 @@ add_library(ryu
 target_include_directories(ryu PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 
 add_subdirectory(ryu/benchmark)
+add_subdirectory(example)

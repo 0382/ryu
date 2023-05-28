@@ -351,8 +351,8 @@ static inline int copy_special_str_printf(char* const result, const bool sign, c
     result[0] = '-';
   }
 #endif
-  memcpy(result + sign, "Infinity", 8);
-  return sign + 8;
+  memcpy(result + sign, "inf", 3);
+  return sign + 3;
 }
 
 int d2fixed_buffered_n(double d, uint32_t precision, char* result) {

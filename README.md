@@ -1,4 +1,4 @@
-# Ryu & Ryu Printf [![Build Status](https://travis-ci.org/ulfjack/ryu.svg?branch=master)](https://travis-ci.org/ulfjack/ryu)
+# Ryu & Ryu Printf
 
 This project contains routines to convert IEEE-754 floating-point numbers to
 decimal strings using shortest, fixed `%f`, and scientific `%e`
@@ -156,186 +156,22 @@ My OOPSLA'2019 paper provides a correctness proof:
 https://dl.acm.org/citation.cfm?doid=3366395.3360595
 
 
+## Modifications
 
-## Building, Testing, Running
+This repository removes most benchmark codes, and use CMake as build tool.
 
-We use the Bazel build system (https://bazel.build) 0.14 or later, although we
-recommend using the latest release. You also need to install Jdk 8 (or later)
-to build and run the Java code, and/or a C/C++ compiler (gcc or clang on Ubuntu,
-XCode on MacOS, or MSVC on Windows) to build the C/C++ code.
+It add more human readable output like `Julia`: https://github.com/JuliaLang/julia/tree/master/base/ryu.
 
-To build Ryu, run
+```text
+                      d2s                  d2fixed                    d2exp            c++ std::cout           write_shortest           to_chars/fixed      to_chars/scientific        to_chars/general
+                      1e0             1.0000000000         1.0000000000e+00                        1                     +1.0                        1                    1e+00                        1
+                     1e-1             0.1000000000         1.0000000000e-01                      0.1                     +0.1                      0.1                    1e-01                      0.1
+                     -0.0            -0.0000000000        -0.0000000000e+00                       -0                     -0.0                       -0                   -0e+00                       -0
+                     -1e0            -1.0000000000        -1.0000000000e+00                       -1                     -1.0                       -1                   -1e+00                       -1
+                3.14159e0             3.1415900000         3.1415900000e+00                  3.14159                 +3.14159                  3.14159              3.14159e+00                  3.14159
+                 1.618e10   16180000000.0000000000         1.6180000000e+10                1.618e+10               +1.618e+10              16180000000                1.618e+10                1.618e+10
+     -3.142857142857143e0            -3.1428571429        -3.1428571429e+00                 -3.14286       -3.142857142857143       -3.142857142857143   -3.142857142857143e+00       -3.142857142857143
+                      nan                      nan                      nan                     -nan                      nan                     -nan                     -nan                     -nan
+                      inf                      inf                      inf                      inf                     +inf                      inf                      inf                      inf
+                     -inf                     -inf                     -inf                     -inf                     -inf                     -inf                     -inf                     -inf
 ```
-$ bazel build //ryu
-```
-
-To build Ryu Printf, run
-```
-$ bazel build //ryu:ryu_printf
-```
-
-### Big-Endian Architectures
-The C implementations should work on big-endian architectures provided that the
-floating point type and the corresponding integer type use the same endianness.
-
-There are no concerns around endianness for the Java implementation.
-
-### Building with a Custom Compiler
-You can select a custom C++ compiler by setting the CC environment variable,
-e.g., use these steps to build with clang-4.0 on Ubuntu:
-```
-$ export CC=clang-4.0
-$ bazel build //ryu
-```
-
-Building Ryu Printf against musl and msys requires installing the corresponding
-packages. We only tested against the musl Debian package that installs a gcc
-wrapper and is enabled by setting `CC`. However, building against msys
-requires manually adjusting Bazel's compiler configuration files.
-
-### Tests
-You can run both C and Java tests with
-```
-$ bazel test //ryu/... //src/...
-```
-
-
-
-## Ryu: Additional Notes
-
-### Jaffer
-The code given by Jaffer in the original paper does not come with a license
-declaration. Instead, we're using code found on GitHub [3], which contains a
-license declaration by Jaffer. Compared to the original code, this
-implementation no longer outputs incorrect values for negative numbers.
-
-We provide a binary to find differences between Ryu and the Jaffer / Jdk
-implementations:
-```
-$ bazel run //src/main/java/info/adams/ryu/analysis:FindDifferences --
-```
-
-Add the `-mode=csv` option to get all the discovered differences as a CSV. Use
-`-mode=latex` instead to get a latex snippet of the first 20. Use
-`-mode=summary` to only print the number of discovered differences (this is the
-default mode).
-
-[3]: https://github.com/coconut2015/cookjson/blob/master/cookjson-core/src/main/java/org/yuanheng/cookjson/DoubleUtils.java
-
-### Computing Required Lookup Table Sizes
-You can compute the required lookup table sizes with:
-```
-$ bazel run //src/main/java/info/adams/ryu/analysis:ComputeTableSizes --
-```
-
-Add `-v` to get slightly more verbose output.
-
-### Computing Required Bit Sizes
-You can compute the required bit sizes with:
-```
-$ bazel run //src/main/java/info/adams/ryu/analysis:ComputeRequiredBitSizes --
-```
-
-Add the `-128` and `-256` flags to also cover 128- and 256-bit numbers. This
-could take a while - 128-bit takes ~20 seconds on my machine while 256-bit takes
-a few hours. Add `-v` to get very verbose output.
-
-### Java: Comparing All Possible 32-bit Values Exhaustively
-You can check the slow vs. the fast implementation for all 32-bit floating point
-numbers using:
-```
-$ bazel run //src/main/java/info/adams/ryu/analysis:ExhaustiveFloatComparison
-```
-
-This takes ~60 hours to run to completion on an
-Intel(R) Core(TM) i7-4770K with 3.50GHz.
-
-### Java: Comparing All Possible 64-bit Values Exhaustively
-You can check the slow vs. the fast implementation for all 64-bit floating point
-numbers using:
-```
-$ bazel run //src/main/java/info/adams/ryu/analysis:ExtensiveDoubleComparison
-```
-
-This takes approximately forever, so you will need to interrupt the program.
-
-
-
-## Benchmarks
-
-### Ryu
-We provide both C and Java benchmark programs.
-
-Enable optimization by adding "-c opt" on the command line:
-```
-$ bazel run -c opt //ryu/benchmark:ryu_benchmark --
-    Average & Stddev Ryu  Average & Stddev Grisu3
-32:   22.515    1.578       90.981   41.455
-64:   27.545    1.677       98.981   80.797
-```
-
-For the Java benchmark, run:
-```
-$ bazel run //src/main/java/info/adams/ryu/benchmark --
-    Average & Stddev Ryu  Average & Stddev Jdk  Average & Stddev Jaffer
-32:   56.680    9.127       254.903  170.099
-64:   89.751   13.442      1085.596  302.371     1089.535  309.245
-```
-
-Additional parameters can be passed to the benchmark after the `--` parameter:
-```
-  -32           only run the 32-bit benchmark
-  -64           only run the 64-bit benchmark
-  -samples=n    run n pseudo-randomly selected numbers
-  -iterations=n run each number n times
-  -ryu          run Ryu only, no comparison
-  -v            generate verbose output in CSV format
-```
-
-If you have gnuplot installed, you can generate plots from the benchmark data
-with:
-```
-$ bazel build -c opt --jobs=1 //scripts:shortest-{c,java}-{float,double}.pdf
-```
-
-The resulting files are `bazel-genfiles/scripts/shortest-{c,java}-{float,double}.pdf`.
-
-### Ryu Printf
-We provide a C++ benchmark program that runs against the implementation of
-`snprintf` bundled with the selected C++ compiler. You need to enable
-optimization using "-c opt" on the command line:
-```
-$ bazel run -c opt //ryu/benchmark:ryu_printf_benchmark --
-    Average & Stddev Ryu  Average & Stddev snprintf
-%f:  116.359  130.992     3983.251 5331.505
-%e:   40.853   10.872      210.648   36.779
-```
-
-Additional parameters can be passed to the benchmark after the `--` parameter:
-```
-  -f            only run the %f benchmark
-  -e            only run the %e benchmark
-  -precision=n  run with precision n (default is 6)
-  -samples=n    run n pseudo-randomly selected numbers
-  -iterations=n run each number n times
-  -ryu          run Ryu Printf only, no comparison
-  -v            generate verbose output in CSV format
-```
-
-See above for selecting a different compiler. Note that msys C++ compilation
-does not work out of the box.
-
-We also provide a simplified C benchmark for platforms that do not support C++
-compilation, but *note* that pure C compilation is not natively supported by
-Bazel:
-```
-$ bazel run -c opt //ryu/benchmark:ryu_printf_benchmark_c --
-```
-
-If you have gnuplot installed, you can generate plots from the benchmark data
-with:
-```
-$ bazel build -c opt --jobs=1 //scripts:{f,e}-c-double-{1,10,100,1000}.pdf
-```
-
-The resulting files are `bazel-genfiles/scripts/{f,e}-c-double-{1,10,100,1000}.pdf`.

@@ -34,6 +34,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #ifdef RYU_DEBUG
 #include <inttypes.h>
@@ -397,7 +398,7 @@ static inline int to_chars(const floating_decimal_64 v, const bool sign, char* c
   }
 
   // Print the exponent.
-  result[index++] = 'E';
+  result[index++] = 'e';
   int32_t exp = v.exponent + (int32_t) olength - 1;
   if (exp < 0) {
     result[index++] = '-';
@@ -506,4 +507,225 @@ char* d2s(double f) {
   char* const result = (char*) malloc(25);
   d2s_buffered(f, result);
   return result;
+}
+
+int write_shortest_d(char* result, double f, char plus, bool hash, int precision, char expchar, bool padexp) {
+  // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
+  const uint64_t bits = double_to_bits(f);
+
+#ifdef RYU_DEBUG
+  printf("IN=");
+  for (int32_t bit = 63; bit >= 0; --bit) {
+    printf("%d", (int) ((bits >> bit) & 1));
+  }
+  printf("\n");
+#endif
+
+  // Decode bits into sign, mantissa, and exponent.
+  const bool ieeeSign = ((bits >> (DOUBLE_MANTISSA_BITS + DOUBLE_EXPONENT_BITS)) & 1) != 0;
+  const uint64_t ieeeMantissa = bits & ((1ull << DOUBLE_MANTISSA_BITS) - 1);
+  const uint32_t ieeeExponent = (uint32_t) ((bits >> DOUBLE_MANTISSA_BITS) & ((1u << DOUBLE_EXPONENT_BITS) - 1));
+  // Case distinction; exit early for the easy cases.
+  if (ieeeExponent == ((1u << DOUBLE_EXPONENT_BITS) - 1u) || (ieeeExponent == 0 && ieeeMantissa == 0)) {
+    if(plus != '\0')
+      return copy_special_str_signed(result, plus, ieeeSign, ieeeExponent, ieeeMantissa);
+    else
+      return copy_special_str(result, ieeeSign, ieeeExponent, ieeeMantissa);
+  }
+
+  floating_decimal_64 v;
+  const bool isSmallInt = d2d_small_int(ieeeMantissa, ieeeExponent, &v);
+  if (isSmallInt) {
+    // For small integers in the range [1, 2^53), v.mantissa might contain trailing (decimal) zeros.
+    // For scientific notation we need to move these zeros into the exponent.
+    // (This is not needed for fixed-point notation, so it might be beneficial to trim
+    // trailing zeros in to_chars only if needed - once fixed-point notation output is implemented.)
+    for (;;) {
+      const uint64_t q = div10(v.mantissa);
+      const uint32_t r = ((uint32_t) v.mantissa) - 10 * ((uint32_t) q);
+      if (r != 0) {
+        break;
+      }
+      v.mantissa = q;
+      ++v.exponent;
+    }
+  } else {
+    v = d2d(ieeeMantissa, ieeeExponent);
+  }
+
+  int index = 0;
+  if(ieeeSign)
+  {
+    result[index++] = '-';
+  }
+  else if(plus != '\0')
+  {
+    result[index++] = plus;
+  }
+
+  uint64_t output = v.mantissa;
+  const int32_t nexp = v.exponent;
+  const uint32_t olength = decimalLength17(output);
+  bool exp_from = true;
+
+  int32_t pt = nexp + (int32_t)olength;
+  if(-4 < pt && pt <= (precision == -1 ? 6 : precision))
+  {
+    exp_from = false;
+    if(pt <= 0)
+    {
+      result[index++] = '0';
+      result[index++] = '.';
+      for(int _ = 0; _ < abs(pt); ++_)
+      {
+        result[index++] = '0';
+      }
+    }
+  }
+  else
+  {
+    // ?
+    ++index;
+  }
+  uint32_t i = 0;
+  if((output >> 32) != 0)
+  {
+    const uint64_t q = div1e8(output);
+    uint32_t output2 = ((uint32_t)output - 100000000 * ((uint32_t)q));
+    output = q;
+
+    const uint32_t c = output2 % 10000;
+    output2 /= 10000;
+    const uint32_t d = output2 % 10000;
+    const uint32_t c0 = (c % 100) << 1;
+    const uint32_t c1 = (c / 100) << 1;
+    const uint32_t d0 = (d % 100) << 1;
+    const uint32_t d1 = (d / 100) << 1;
+    memcpy(result + index + olength - i - 2, DIGIT_TABLE + c0, 2);
+    memcpy(result + index + olength - i - 4, DIGIT_TABLE + c1, 2);
+    memcpy(result + index + olength - i - 6, DIGIT_TABLE + d0, 2);
+    memcpy(result + index + olength - i - 8, DIGIT_TABLE + d1, 2);
+    i += 8;
+  }
+  uint32_t output2 = (uint32_t)output;
+  while (output2 >= 10000) {
+#ifdef __clang__ // https://bugs.llvm.org/show_bug.cgi?id=38217
+    const uint32_t c = output2 - 10000 * (output2 / 10000);
+#else
+    const uint32_t c = output2 % 10000;
+#endif
+    output2 /= 10000;
+    const uint32_t c0 = (c % 100) << 1;
+    const uint32_t c1 = (c / 100) << 1;
+    memcpy(result + index + olength - i - 2, DIGIT_TABLE + c0, 2);
+    memcpy(result + index + olength - i - 4, DIGIT_TABLE + c1, 2);
+    i += 4;
+  }
+  if (output2 >= 100) {
+    const uint32_t c = (output2 % 100) << 1;
+    output2 /= 100;
+    memcpy(result + index + olength - i - 2, DIGIT_TABLE + c, 2);
+    i += 2;
+  }
+  if (output2 >= 10) {
+    const uint32_t c = output2 << 1;
+    // We can't use memcpy here: the decimal dot goes between these two digits.
+    result[index + 1] = DIGIT_TABLE[c + 1];
+    result[index - exp_from] = DIGIT_TABLE[c];
+  } else {
+    result[index - exp_from] = (char) ('0' + output2);
+  }
+
+  if(exp_from)
+  {
+    // Print the exponent.
+    if(olength > 1 || hash)
+    {
+      result[index] = '.';
+      index += olength;
+      precision -= olength;
+    }
+    if(hash && olength == 1)
+    {
+      result[index++] = '0';
+    }
+    while(hash && precision > 0)
+    {
+      result[index++] = '0';
+      --precision;
+    }
+
+    result[index++] = expchar;
+    int32_t exp = nexp + (int32_t) olength - 1;
+    if (exp < 0) {
+      result[index++] = '-';
+      exp = -exp;
+    }
+    else if(padexp)
+    {
+      result[index++] = '+';
+    }
+
+    if (exp >= 100) {
+      const int32_t c = exp % 10;
+      memcpy(result + index, DIGIT_TABLE + 2 * (exp / 10), 2);
+      result[index + 2] = (char) ('0' + c);
+      index += 3;
+    } else if (exp >= 10) {
+      memcpy(result + index, DIGIT_TABLE + 2 * exp, 2);
+      index += 2;
+    } else {
+      result[index++] = (char) ('0' + exp);
+    }
+  }
+  else
+  {
+    if(pt <= 0)
+    {
+      index += olength;
+      precision -= olength;
+      while (hash && precision > 0)
+      {
+        result[index++] = '0';
+        precision -= 1;
+      }
+    }
+    else if(pt >= olength)
+    {
+      index += olength;
+      precision -= olength;
+      for(int _ = 0; _ < nexp; ++_)
+      {
+        result[index++] = '0';
+        precision -= 1;
+      }
+      if(hash)
+      {
+        result[index++] = '.';
+        if(precision < 0)
+        {
+          result[index++] = '0';
+        }
+        while(precision > 0)
+        {
+          result[index++] = '0';
+          precision -= 1;
+        }
+      }
+    }
+    else
+    {
+      int32_t pointoff = (int32_t)olength - abs(nexp);
+      memmove(result + index + pointoff + 1, result + index + pointoff, olength - pointoff + 1);
+      result[index + pointoff] = '.';
+      index += olength + 1;
+      precision -= olength;
+      while (hash && precision > 0)
+      {
+        result[index++] += '0';
+        --precision;
+      }
+    }
+  }
+  return index;
 }
